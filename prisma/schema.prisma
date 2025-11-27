@@ -1,0 +1,127 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Specialty {
+  PLOMERIA
+  ELECTRICIDAD
+  ALBANILERIA
+  MANTENIMIENTO
+  LIMPIEZA
+  OTROS
+}
+
+enum JobStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum ReviewRole {
+  CLIENT_TO_PROVIDER
+  PROVIDER_TO_CLIENT
+}
+
+model User {
+  id                    String    @id @default(cuid())
+  email                 String    @unique
+  password              String // hash bcrypt
+  walletAddress         String    @unique
+  encryptedPrivateKey   String // encrypted private key
+  specialties           Specialty[]
+  
+  // Dual Ranking System
+  clientScore           Float     @default(0.0)
+  providerScore         Float     @default(0.0)
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  // Relations
+  jobsAsClient          Job[]     @relation("ClientJobs")
+  jobsAsProvider        Job[]     @relation("ProviderJobs")
+  reviewsReceived       Review[]  @relation("ReviewsReceived")
+  reviewsGiven          Review[]  @relation("ReviewsGiven")
+  jobProposals          JobProposal[] @relation("JobProposals")
+  
+  @@map("users")
+}
+
+model Job {
+  id                    String     @id @default(cuid())
+  title                 String
+  description           String
+  category              Specialty
+  amount                String     // Amount in wei (string to handle big numbers)
+  status                JobStatus  @default(PENDING)
+  txHash                String?    @unique // Blockchain transaction hash (only set when provider is accepted)
+  
+  clientId              String
+  providerId            String?
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relations
+  client                User       @relation("ClientJobs", fields: [clientId], references: [id])
+  provider              User?      @relation("ProviderJobs", fields: [providerId], references: [id])
+  reviews               Review[]
+  proposals             JobProposal[]
+  
+  @@map("jobs")
+}
+
+model JobProposal {
+  id                    String     @id @default(cuid())
+  message               String?    // Optional message from provider
+  proposedAmount        String?    // Optional: provider can propose different amount
+  counterOfferAmount    String?    // Amount proposed by client in counteroffer
+  status                String     @default("PENDING") // PENDING, ACCEPTED, REJECTED, COUNTEROFFERED, COUNTEROFFER_REJECTED
+  rejectedAt            DateTime?  // Timestamp when proposal was rejected (for 24h cooldown)
+  
+  jobId                 String
+  providerId            String
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relations
+  job                   Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  provider              User       @relation("JobProposals", fields: [providerId], references: [id])
+  
+  @@unique([jobId, providerId]) // One proposal per provider per job
+  @@map("job_proposals")
+}
+
+model Review {
+  id                    String     @id @default(cuid())
+  rating                Int        // 1-5
+  comment               String?
+  role                  ReviewRole // CLIENT_TO_PROVIDER or PROVIDER_TO_CLIENT
+  
+  jobId                 String
+  reviewerId            String     // User who wrote the review
+  reviewedUserId        String     // User who receives the review
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relations
+  job                   Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  reviewer              User       @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  reviewedUser          User       @relation("ReviewsReceived", fields: [reviewedUserId], references: [id])
+  
+  @@unique([jobId, reviewerId, role]) // One review per role per job
+  @@map("reviews")
+}
+
