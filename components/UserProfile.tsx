@@ -118,35 +118,57 @@ export default function UserProfile({ userId }: UserProfileProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Calificación como Cliente
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                {user.clientScore.toFixed(1)}
-              </span>
-              <div className="flex text-yellow-400">
-                {'★'.repeat(Math.round(user.clientScore))}
-                {'☆'.repeat(5 - Math.round(user.clientScore))}
+        {/* Calificaciones - debajo de la info del usuario */}
+        <div className="border-t pt-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Calificaciones</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Calificación como Cliente - siempre visible */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Calificación como Cliente
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {user.clientScore > 0 ? user.clientScore.toFixed(1) : 'N/A'}
+                </span>
+                {user.clientScore > 0 && (
+                  <div className="flex text-yellow-400">
+                    {'★'.repeat(Math.round(user.clientScore))}
+                    {'☆'.repeat(5 - Math.round(user.clientScore))}
+                  </div>
+                )}
               </div>
+              {user.clientScore === 0 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Aún no tienes calificaciones como cliente
+                </p>
+              )}
             </div>
-          </div>
 
-          <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Calificación como Proveedor
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-green-600 dark:text-green-400">
-                {user.providerScore.toFixed(1)}
-              </span>
-              <div className="flex text-yellow-400">
-                {'★'.repeat(Math.round(user.providerScore))}
-                {'☆'.repeat(5 - Math.round(user.providerScore))}
+            {/* Calificación como Proveedor - solo si tiene especialidades */}
+            {isProvider && (
+              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Calificación como Proveedor
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+                    {user.providerScore > 0 ? user.providerScore.toFixed(1) : 'N/A'}
+                  </span>
+                  {user.providerScore > 0 && (
+                    <div className="flex text-yellow-400">
+                      {'★'.repeat(Math.round(user.providerScore))}
+                      {'☆'.repeat(5 - Math.round(user.providerScore))}
+                    </div>
+                  )}
+                </div>
+                {user.providerScore === 0 && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Aún no tienes calificaciones como proveedor
+                  </p>
+                )}
               </div>
-            </div>
+            )}
           </div>
         </div>
 

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { JobStatus } from '@prisma/client';
 import { ethers } from 'ethers';
 import { notifyUser } from '@/server/socket-wrapper';
+import { createJobInContract } from '@/lib/web3/escrow';
 
 // Provider accepts or rejects counteroffer
 export async function POST(
@@ -128,6 +129,33 @@ export async function POST(
       // Determine final amount (use counteroffer amount from client)
       const finalAmount = proposal.counterOfferAmount || proposal.proposedAmount || proposal.job.amount;
 
+      // Create job in escrow contract and deposit funds
+      let contractJobId: string | null = null;
+      let txHash: string | null = null;
+      
+      try {
+        console.log('💰 Creating job in escrow contract (counteroffer)...');
+        const contractResult = await createJobInContract(
+          proposal.job.clientId,
+          proposal.provider.walletAddress,
+          proposal.providerId,
+          finalAmount,
+          proposal.job.category
+        );
+        contractJobId = contractResult.contractJobId;
+        txHash = contractResult.txHash;
+        console.log(`✅ Job created in contract: ID=${contractJobId}, TX=${txHash}`);
+      } catch (error: any) {
+        console.error('❌ Error creating job in contract:', error);
+        return NextResponse.json(
+          { 
+            error: 'Error al crear el trabajo en el contrato de escrow',
+            details: error.message || 'Unknown error'
+          },
+          { status: 500 }
+        );
+      }
+
       // Update proposal status
       await prisma.jobProposal.update({
         where: { id: params.id },
@@ -136,13 +164,15 @@ export async function POST(
         },
       });
 
-      // Update job: assign provider and set status to IN_PROGRESS
+      // Update job: assign provider, set status to IN_PROGRESS, and save contract info
       const updatedJob = await prisma.job.update({
         where: { id: proposal.jobId },
         data: {
           providerId: proposal.providerId,
           status: JobStatus.IN_PROGRESS,
           amount: finalAmount, // Use counteroffer amount
+          contractJobId: contractJobId,
+          txHash: txHash,
         },
         include: {
           client: {
@@ -185,6 +215,26 @@ export async function POST(
         });
       } catch (error) {
         console.error('Error sending acceptance notification:', error);
+      }
+
+      // Notify both client and provider that job status changed to IN_PROGRESS
+      try {
+        notifyUser(proposal.job.clientId, 'job-status-changed', {
+          jobId: updatedJob.id,
+          jobTitle: updatedJob.title,
+          oldStatus: 'PENDING',
+          newStatus: 'IN_PROGRESS',
+          message: `El trabajo "${updatedJob.title}" ha comenzado`,
+        });
+        notifyUser(proposal.providerId, 'job-status-changed', {
+          jobId: updatedJob.id,
+          jobTitle: updatedJob.title,
+          oldStatus: 'PENDING',
+          newStatus: 'IN_PROGRESS',
+          message: `El trabajo "${updatedJob.title}" ha comenzado`,
+        });
+      } catch (error) {
+        console.error('Error sending job status change notification:', error);
       }
 
       return NextResponse.json({

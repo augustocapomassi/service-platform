@@ -152,12 +152,58 @@ export function useNotifications(userId: string | null) {
       }
     });
 
+    // Listen for job status change notifications
+    socketInstance.on('job-status-changed', (data: any) => {
+      const statusMessages: Record<string, Record<string, string>> = {
+        'IN_PROGRESS': {
+          'PENDING': 'El trabajo ha comenzado',
+        },
+        'COMPLETED': {
+          'IN_PROGRESS': 'El trabajo ha sido completado',
+        },
+      };
+
+      const statusMessage = data.message || 
+        statusMessages[data.newStatus]?.[data.oldStatus] || 
+        `El trabajo cambió de ${data.oldStatus} a ${data.newStatus}`;
+
+      const notification: Notification = {
+        id: `notif-${Date.now()}-${data.jobId}`,
+        type: 'job-status-changed',
+        message: `${statusMessage}: ${data.jobTitle}`,
+        data,
+        timestamp: new Date(),
+      };
+      
+      setNotifications((prev) => [notification, ...prev]);
+      
+      // Trigger page refresh for jobs page
+      if (typeof window !== 'undefined' && window.location.pathname === '/jobs') {
+        window.dispatchEvent(new CustomEvent('job-status-changed', { detail: data }));
+      }
+      
+      // Show browser notification if permission granted
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const title = data.newStatus === 'IN_PROGRESS' 
+          ? 'Trabajo Iniciado' 
+          : data.newStatus === 'COMPLETED'
+          ? 'Trabajo Completado'
+          : 'Estado del Trabajo Actualizado';
+        
+        new Notification(title, {
+          body: notification.message,
+          icon: '/favicon.ico',
+        });
+      }
+    });
+
     return () => {
       socketInstance.off('new-proposal');
       socketInstance.off('proposal-accepted');
       socketInstance.off('proposal-counteroffered');
       socketInstance.off('counteroffer-accepted');
       socketInstance.off('counteroffer-rejected');
+      socketInstance.off('job-status-changed');
     };
   }, [userId]);
 

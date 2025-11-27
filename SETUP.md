@@ -117,8 +117,10 @@ forge build
 En una terminal, inicia Anvil (blockchain local):
 
 ```bash
-anvil
+anvil --steps-tracing
 ```
+
+**Nota importante sobre logs de transferencias:** Si no ves las transferencias entre billeteras en los logs de Anvil, es porque las transferencias se realizan dentro del contrato (transacciones internas). Usa el flag `--steps-tracing` para ver todas las transacciones internas, incluyendo las transferencias de ETH entre direcciones.
 
 En otra terminal, despliega el contrato:
 
@@ -186,8 +188,24 @@ docker-compose logs postgres
 
 Asegúrate de que Anvil esté corriendo antes de desplegar:
 ```bash
-anvil
+anvil --steps-tracing
 ```
+
+### No veo las transferencias entre billeteras en los logs de Anvil
+
+Las transferencias de ETH se realizan dentro del contrato usando transacciones internas (internal transactions). Anvil por defecto solo muestra las transacciones principales, no las internas.
+
+**Solución:** Inicia Anvil con el flag `--steps-tracing`:
+```bash
+anvil --steps-tracing
+```
+
+O usando el script de npm:
+```bash
+npm run anvil
+```
+
+Esto mostrará todas las transacciones internas, incluyendo las transferencias de ETH entre direcciones cuando se completan trabajos, se resuelven disputas, o se cancelan trabajos.
 
 ### Error: Prisma Client not generated
 

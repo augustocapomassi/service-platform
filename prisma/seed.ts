@@ -1,7 +1,7 @@
 import { PrismaClient, Specialty, JobStatus, ReviewRole } from '@prisma/client';
 import { ethers } from 'ethers';
 import bcrypt from 'bcryptjs';
-import { generateWallet } from '../lib/web3/wallet';
+import { encryptPrivateKey } from '../lib/web3/wallet';
 import { ESCROW_ABI } from '../lib/web3/utils';
 
 const prisma = new PrismaClient();
@@ -20,63 +20,73 @@ async function main() {
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const contractAddress = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS;
 
-  // Get test accounts from Anvil (default accounts)
-  const accounts = [
-    '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
-    '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
-    '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+  // Anvil default accounts (Account #0 is reserved for contract deployment)
+  // Account #1, #2, #3 will be used for users
+  const anvilAccounts = [
+    {
+      address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', // Account #1
+      privateKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+    },
+    {
+      address: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC', // Account #2
+      privateKey: '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+    },
+    {
+      address: '0x90F79bf6EB2c4f870365E785982E1f101E93b906', // Account #3
+      privateKey: '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6',
+    },
   ];
 
   // Create users
-  console.log('👥 Creating users...');
+  console.log('👥 Creating users with Anvil accounts...');
 
-  // 1. Juan (Cliente) - Sin especialidades
-  const juanWallet = await generateWallet();
+  // 1. Juan (Cliente) - Account #1 - Sin especialidades
   const juanPassword = await bcrypt.hash('juan123', 10);
+  const juanEncryptedKey = encryptPrivateKey(anvilAccounts[0].privateKey);
   const juan = await prisma.user.create({
     data: {
       email: 'juan@example.com',
       password: juanPassword,
-      walletAddress: accounts[0] || juanWallet.address,
-      encryptedPrivateKey: juanWallet.encryptedPrivateKey,
+      walletAddress: anvilAccounts[0].address,
+      encryptedPrivateKey: juanEncryptedKey,
       specialties: [], // Solo cliente
       clientScore: 0.0,
       providerScore: 0.0,
     },
   });
-  console.log('✅ Created Juan (Cliente)');
+  console.log(`✅ Created Juan (Cliente) - ${anvilAccounts[0].address}`);
 
-  // 2. Maria (Electricista) - Especialidad ELECTRICIDAD, Ranking inicial 4.5
-  const mariaWallet = await generateWallet();
+  // 2. Maria (Electricista) - Account #2 - Especialidad ELECTRICIDAD, Ranking inicial 4.5
   const mariaPassword = await bcrypt.hash('maria123', 10);
+  const mariaEncryptedKey = encryptPrivateKey(anvilAccounts[1].privateKey);
   const maria = await prisma.user.create({
     data: {
       email: 'maria@example.com',
       password: mariaPassword,
-      walletAddress: accounts[1] || mariaWallet.address,
-      encryptedPrivateKey: mariaWallet.encryptedPrivateKey,
+      walletAddress: anvilAccounts[1].address,
+      encryptedPrivateKey: mariaEncryptedKey,
       specialties: [Specialty.ELECTRICIDAD],
       clientScore: 0.0,
       providerScore: 4.5, // Ranking inicial como proveedor
     },
   });
-  console.log('✅ Created Maria (Electricista)');
+  console.log(`✅ Created Maria (Electricista) - ${anvilAccounts[1].address}`);
 
-  // 3. Pedro (Todero) - Especialidades PLOMERIA y MANTENIMIENTO
-  const pedroWallet = await generateWallet();
+  // 3. Pedro (Todero) - Account #3 - Especialidades PLOMERIA y MANTENIMIENTO
   const pedroPassword = await bcrypt.hash('pedro123', 10);
+  const pedroEncryptedKey = encryptPrivateKey(anvilAccounts[2].privateKey);
   const pedro = await prisma.user.create({
     data: {
       email: 'pedro@example.com',
       password: pedroPassword,
-      walletAddress: accounts[2] || pedroWallet.address,
-      encryptedPrivateKey: pedroWallet.encryptedPrivateKey,
+      walletAddress: anvilAccounts[2].address,
+      encryptedPrivateKey: pedroEncryptedKey,
       specialties: [Specialty.PLOMERIA, Specialty.MANTENIMIENTO],
       clientScore: 0.0,
       providerScore: 0.0,
     },
   });
-  console.log('✅ Created Pedro (Todero)');
+  console.log(`✅ Created Pedro (Todero) - ${anvilAccounts[2].address}`);
 
   // Create jobs (if contract address is provided, interact with blockchain)
   console.log('💼 Creating jobs...');
@@ -241,13 +251,15 @@ async function main() {
   } else {
     console.log('⚠️  Contract address not provided, skipping blockchain interactions');
     console.log('   Set NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS in .env to create on-chain jobs');
+    console.log('   El contrato debe desplegarse usando Account #0 de Anvil');
   }
 
   console.log('🎉 Seed completed successfully!');
-  console.log('\n📋 Test Users:');
-  console.log('   Juan (Cliente): juan@example.com / juan123');
-  console.log('   Maria (Electricista): maria@example.com / maria123');
-  console.log('   Pedro (Todero): pedro@example.com / pedro123');
+  console.log('\n📋 Test Users (usando cuentas de Anvil):');
+  console.log(`   Juan (Cliente): juan@example.com / juan123 - ${anvilAccounts[0].address} (Account #1)`);
+  console.log(`   Maria (Electricista): maria@example.com / maria123 - ${anvilAccounts[1].address} (Account #2)`);
+  console.log(`   Pedro (Todero): pedro@example.com / pedro123 - ${anvilAccounts[2].address} (Account #3)`);
+  console.log('\n💡 Nota: Account #0 de Anvil se reserva para el despliegue del contrato EscrowService');
 }
 
 main()

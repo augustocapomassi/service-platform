@@ -21,3 +21,11 @@ export function getIO() {
   return socketModule.getIO();
 }
 
+export function broadcast(event: string, data: any) {
+  if (!socketModule) {
+    socketModule = require('./socket.js');
+  }
+  
+  return socketModule.broadcast(event, data);
+}
+

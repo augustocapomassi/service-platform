@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { JobStatus, ReviewRole, Specialty } from '@prisma/client';
 import { getCategoryImage } from '@/lib/category-images';
+import { getSocket } from '@/lib/socket-client';
 import Image from 'next/image';
 
 interface Job {
@@ -22,6 +23,8 @@ interface Job {
   category: Specialty;
   status: JobStatus;
   amount: string;
+  clientApproved?: boolean;
+  providerApproved?: boolean;
   client: {
     id: string;
     email: string;
@@ -151,8 +154,8 @@ export default function JobsPage() {
 
     switch (activeTab) {
       case 'my-jobs':
-        // Jobs where I'm the client
-        return job.client.id === user.id;
+        // Only pending jobs where I'm the client
+        return job.client.id === user.id && job.status === JobStatus.PENDING;
 
       case 'in-progress':
         // Jobs in progress where I'm either client or provider
@@ -181,36 +184,129 @@ export default function JobsPage() {
     }
   });
 
-  // Listen for real-time proposal notifications and refresh jobs
+  // Listen for real-time socket events and update jobs state immediately
   useEffect(() => {
-    const handleProposalReceived = (event: CustomEvent) => {
-      fetchJobs(); // Refresh jobs when a new proposal is received
-    };
+    if (!user) return;
 
-    const handleJobUpdated = (event: CustomEvent) => {
-      fetchJobs(); // Refresh jobs when job is updated (e.g., accepted)
-    };
-
-    const handleCounterofferReceived = (event: CustomEvent) => {
-      fetchJobs(); // Refresh jobs when counteroffer is received
-    };
-
-    const handleCounterofferRejected = (event: CustomEvent) => {
-      fetchJobs(); // Refresh jobs when counteroffer is rejected
-    };
-
-    window.addEventListener('job-proposal-received', handleProposalReceived as EventListener);
-    window.addEventListener('job-updated', handleJobUpdated as EventListener);
-    window.addEventListener('counteroffer-received', handleCounterofferReceived as EventListener);
-    window.addEventListener('counteroffer-rejected', handleCounterofferRejected as EventListener);
+    const socket = getSocket();
     
-    return () => {
-      window.removeEventListener('job-proposal-received', handleProposalReceived as EventListener);
-      window.removeEventListener('job-updated', handleJobUpdated as EventListener);
-      window.removeEventListener('counteroffer-received', handleCounterofferReceived as EventListener);
-      window.removeEventListener('counteroffer-rejected', handleCounterofferRejected as EventListener);
+    // Join user room to receive notifications
+    socket.emit('join-user-room', user.id);
+    console.log('📡 Jobs page: Listening to socket events for user:', user.id);
+
+    // Listen for new jobs created - add to list immediately
+    const handleNewJobCreated = (data: any) => {
+      console.log('🆕 New job created:', data);
+      // Fetch to get the complete job data
+      fetchJobs();
     };
-  }, []);
+
+    // Listen for new proposals - fetch to get updated proposals list
+    const handleNewProposal = (data: any) => {
+      console.log('📨 New proposal received:', data);
+      // Fetch to get the new proposal data
+      fetchJobs();
+    };
+
+    // Listen for proposal accepted - update job status to IN_PROGRESS immediately
+    const handleProposalAccepted = (data: any) => {
+      console.log('✅ Proposal accepted:', data);
+      setAllJobs((prevJobs) => {
+        const updated = prevJobs.map((job) => {
+          if (job.id === data.jobId) {
+            console.log(`🔄 Updating job ${job.id} status to IN_PROGRESS`);
+            return {
+              ...job,
+              status: JobStatus.IN_PROGRESS,
+            };
+          }
+          return job;
+        });
+        return updated;
+      });
+      // Fetch to get complete updated job data (provider info, etc.)
+      setTimeout(() => fetchJobs(), 500);
+    };
+
+    // Listen for job status changes - update immediately without fetch
+    const handleJobStatusChanged = (data: any) => {
+      console.log('🔄 Job status changed event received:', data);
+      setAllJobs((prevJobs) => {
+        const updatedJobs = prevJobs.map((job) => {
+          if (job.id === data.jobId) {
+            const newStatus = data.newStatus as JobStatus;
+            console.log(`✅ Updating job ${job.id} status from ${job.status} to ${newStatus}`);
+            return {
+              ...job,
+              status: newStatus,
+            };
+          }
+          return job;
+        });
+        console.log('📋 Updated jobs state:', updatedJobs.length, 'jobs');
+        return updatedJobs;
+      });
+    };
+
+    // Listen for counteroffer events - fetch to get updated data
+    const handleCounterofferReceived = (data: any) => {
+      console.log('💰 Counteroffer received:', data);
+      fetchJobs();
+    };
+
+    const handleCounterofferRejected = (data: any) => {
+      console.log('❌ Counteroffer rejected:', data);
+      fetchJobs();
+    };
+
+    const handleCounterofferAccepted = (data: any) => {
+      console.log('✅ Counteroffer accepted:', data);
+      setAllJobs((prevJobs) => {
+        return prevJobs.map((job) => {
+          if (job.id === data.jobId) {
+            return {
+              ...job,
+              status: JobStatus.IN_PROGRESS,
+            };
+          }
+          return job;
+        });
+      });
+      setTimeout(() => fetchJobs(), 500);
+    };
+
+    // Register socket listeners
+    socket.on('new-job-created', handleNewJobCreated);
+    socket.on('new-proposal', handleNewProposal);
+    socket.on('proposal-accepted', handleProposalAccepted);
+    socket.on('job-status-changed', handleJobStatusChanged);
+    socket.on('proposal-counteroffered', handleCounterofferReceived);
+    socket.on('counteroffer-rejected', handleCounterofferRejected);
+    socket.on('counteroffer-accepted', handleCounterofferAccepted);
+
+    // Log socket connection status
+    socket.on('connect', () => {
+      console.log('✅ Socket connected in jobs page');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Socket disconnected in jobs page');
+    });
+
+    // Cleanup
+    return () => {
+      console.log('🧹 Cleaning up socket listeners');
+      socket.off('new-job-created', handleNewJobCreated);
+      socket.off('new-proposal', handleNewProposal);
+      socket.off('proposal-accepted', handleProposalAccepted);
+      socket.off('job-status-changed', handleJobStatusChanged);
+      socket.off('proposal-counteroffered', handleCounterofferReceived);
+      socket.off('counteroffer-rejected', handleCounterofferRejected);
+      socket.off('counteroffer-accepted', handleCounterofferAccepted);
+      socket.off('connect');
+      socket.off('disconnect');
+    };
+  }, [user]);
 
   const handleReview = (job: Job, role: ReviewRole) => {
     if (role === ReviewRole.CLIENT_TO_PROVIDER && job.provider) {
@@ -297,10 +393,10 @@ export default function JobsPage() {
                 }
               `}
             >
-              Mis Trabajos
+              Mis Trabajos Pendientes
               {user && (
                 <span className="ml-2 py-0.5 px-2.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800">
-                  {allJobs.filter((j) => j.client.id === user.id).length}
+                  {allJobs.filter((j) => j.client.id === user.id && j.status === JobStatus.PENDING).length}
                 </span>
               )}
             </button>
@@ -407,12 +503,30 @@ export default function JobsPage() {
                   >
                     {STATUS_LABELS[job.status]}
                   </span>
+                  {/* Show approval status for IN_PROGRESS jobs */}
+                  {job.status === JobStatus.IN_PROGRESS && (
+                    <div className="mt-2">
+                      {job.clientApproved && job.providerApproved ? (
+                        <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                          ✅ Aprobado por ambos
+                        </span>
+                      ) : job.clientApproved ? (
+                        <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
+                          ⏳ Aprobado por cliente
+                        </span>
+                      ) : job.providerApproved ? (
+                        <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
+                          ⏳ Aprobado por proveedor
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
-                  <div>
+                  <div className="flex-1">
                     <h2 className="text-xl font-semibold">{job.title}</h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                       {job.category}
@@ -421,6 +535,41 @@ export default function JobsPage() {
                       {job.description}
                     </p>
                   </div>
+                  {/* Botón de eliminar - solo para trabajos pendientes creados por el usuario */}
+                  {user &&
+                    job.status === JobStatus.PENDING &&
+                    user.id === job.client.id && (
+                      <button
+                        onClick={async () => {
+                          if (
+                            !confirm(
+                              '¿Estás seguro de que deseas eliminar este trabajo? Esta acción no se puede deshacer.'
+                            )
+                          ) {
+                            return;
+                          }
+                          try {
+                            const res = await fetch(`/api/jobs/${job.id}`, {
+                              method: 'DELETE',
+                            });
+                            if (res.ok) {
+                              fetchJobs();
+                              alert('Trabajo eliminado correctamente');
+                            } else {
+                              const error = await res.json();
+                              alert(error.error || 'Error al eliminar el trabajo');
+                            }
+                          } catch (error) {
+                            console.error('Error deleting job:', error);
+                            alert('Error al eliminar el trabajo');
+                          }
+                        }}
+                        className="ml-4 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
+                        title="Eliminar trabajo"
+                      >
+                        🗑️ Eliminar
+                      </button>
+                    )}
                 </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
@@ -619,62 +768,150 @@ export default function JobsPage() {
                 </div>
               )}
 
-              {/* Button to complete job if in progress */}
+              {/* Button to approve job if in progress */}
               {job.status === JobStatus.IN_PROGRESS && (
                 <div className="border-t pt-4 mt-4">
                   {user && (
                     <>
-                      {(user.id === job.client.id || user.id === job.provider?.id) && (
-                        <button
-                          onClick={async () => {
-                            try {
-                              const res = await fetch(`/api/jobs/${job.id}/complete`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                              });
-                              if (res.ok) {
-                                fetchJobs();
-                                alert('Trabajo marcado como completado!');
-                              } else {
-                                const error = await res.json();
-                                alert(error.error || 'Error al completar el trabajo');
-                              }
-                            } catch (error) {
-                              console.error('Error completing job:', error);
-                              alert('Error al completar el trabajo');
-                            }
-                          }}
-                          className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-                        >
-                          ✅ Marcar como Completado
-                        </button>
+                      {user.id === job.client.id && (
+                        <>
+                          {job.clientApproved ? (
+                            <div className="text-center py-2">
+                              <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                                ✅ Ya aprobaste este trabajo
+                              </p>
+                              {!job.providerApproved && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  Esperando aprobación del proveedor...
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`/api/jobs/${job.id}/complete`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                  });
+                                  if (res.ok) {
+                                    fetchJobs();
+                                    alert('Trabajo aprobado! Esperando aprobación del proveedor.');
+                                  } else {
+                                    const error = await res.json();
+                                    alert(error.error || 'Error al aprobar el trabajo');
+                                  }
+                                } catch (error) {
+                                  console.error('Error approving job:', error);
+                                  alert('Error al aprobar el trabajo');
+                                }
+                              }}
+                              className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                            >
+                              ✅ Aprobar Trabajo (Cliente)
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {user.id === job.provider?.id && (
+                        <>
+                          {job.providerApproved ? (
+                            <div className="text-center py-2">
+                              <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                                ✅ Ya aprobaste este trabajo
+                              </p>
+                              {!job.clientApproved && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  Esperando aprobación del cliente...
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`/api/jobs/${job.id}/complete`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                  });
+                                  if (res.ok) {
+                                    fetchJobs();
+                                    alert('Trabajo aprobado! Esperando aprobación del cliente.');
+                                  } else {
+                                    const error = await res.json();
+                                    alert(error.error || 'Error al aprobar el trabajo');
+                                  }
+                                } catch (error) {
+                                  console.error('Error approving job:', error);
+                                  alert('Error al aprobar el trabajo');
+                                }
+                              }}
+                              className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                            >
+                              ✅ Aprobar Trabajo (Proveedor)
+                            </button>
+                          )}
+                        </>
                       )}
                     </>
                   )}
                 </div>
               )}
 
-              {job.status === JobStatus.COMPLETED && (
+              {job.status === JobStatus.COMPLETED && user && (
                 <div className="border-t pt-4 mt-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                    ¿Dejar reseña?
-                  </p>
-                  <div className="flex gap-2">
-                    {job.provider && (
-                      <button
-                        onClick={() => handleReview(job, ReviewRole.CLIENT_TO_PROVIDER)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                      >
-                        Calificar Proveedor
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleReview(job, ReviewRole.PROVIDER_TO_CLIENT)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
-                    >
-                      Calificar Cliente
-                    </button>
-                  </div>
+                  {/* Verificar si el usuario ya calificó */}
+                  {user.id === job.client.id && job.provider && (
+                    <>
+                      {!job.reviews.some(
+                        (r: any) =>
+                          r.reviewerId === user.id &&
+                          r.role === ReviewRole.CLIENT_TO_PROVIDER
+                      ) ? (
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            ¿Calificar al proveedor?
+                          </p>
+                          <button
+                            onClick={() => handleReview(job, ReviewRole.CLIENT_TO_PROVIDER)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                          >
+                            Calificar Proveedor
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-green-600 dark:text-green-400">
+                          ✓ Ya calificaste al proveedor
+                        </p>
+                      )}
+                    </>
+                  )}
+                  
+                  {user.id === job.provider?.id && (
+                    <>
+                      {!job.reviews.some(
+                        (r: any) =>
+                          r.reviewerId === user.id &&
+                          r.role === ReviewRole.PROVIDER_TO_CLIENT
+                      ) ? (
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            ¿Calificar al cliente?
+                          </p>
+                          <button
+                            onClick={() => handleReview(job, ReviewRole.PROVIDER_TO_CLIENT)}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                          >
+                            Calificar Cliente
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-green-600 dark:text-green-400">
+                          ✓ Ya calificaste al cliente
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -709,7 +946,7 @@ export default function JobsPage() {
         {filteredJobs.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-500 dark:text-gray-400 mb-4">
-              {activeTab === 'my-jobs' && 'No has creado ningún trabajo aún.'}
+              {activeTab === 'my-jobs' && 'No tienes trabajos pendientes.'}
               {activeTab === 'in-progress' && 'No tienes trabajos en proceso.'}
               {activeTab === 'available' && 'No hay trabajos disponibles para postularse en este momento.'}
               {activeTab === 'completed' && 'No tienes trabajos finalizados aún.'}
@@ -719,7 +956,7 @@ export default function JobsPage() {
                 onClick={() => setShowCreateModal(true)}
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
               >
-                + Crear Primer Trabajo
+                + Crear Trabajo
               </button>
             )}
           </div>

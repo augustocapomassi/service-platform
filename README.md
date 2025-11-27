@@ -89,8 +89,10 @@ forge build
 Inicia Anvil:
 
 ```bash
-anvil
+anvil --steps-tracing
 ```
+
+**Nota:** Usa `--steps-tracing` para ver todas las transacciones internas, incluyendo las transferencias de ETH entre billeteras que se realizan dentro del contrato.
 
 En otra terminal, despliega el contrato:
 

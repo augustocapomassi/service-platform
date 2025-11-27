@@ -65,6 +65,11 @@ model Job {
   amount                String     // Amount in wei (string to handle big numbers)
   status                JobStatus  @default(PENDING)
   txHash                String?    @unique // Blockchain transaction hash (only set when provider is accepted)
+  contractJobId         String?    // Job ID in the smart contract (uint256 as string)
+  
+  // Approval tracking - work stays in IN_PROGRESS until both approve
+  clientApproved         Boolean    @default(false)
+  providerApproved       Boolean    @default(false)
   
   clientId              String
   providerId            String?

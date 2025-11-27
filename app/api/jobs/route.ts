@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Specialty, JobStatus } from '@prisma/client';
+import { broadcast } from '@/server/socket-wrapper';
 
 export async function GET(request: NextRequest) {
   try {
@@ -157,6 +158,24 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // Broadcast new job to all connected users
+    try {
+      broadcast('new-job-created', {
+        jobId: job.id,
+        title: job.title,
+        category: job.category,
+        amount: job.amount,
+        client: {
+          id: job.client.id,
+          email: job.client.email,
+        },
+      });
+      console.log('📢 Broadcasted new job to all users:', job.id);
+    } catch (error) {
+      console.error('Error broadcasting new job:', error);
+      // Don't fail the request if broadcast fails
+    }
 
     return NextResponse.json(job, { status: 201 });
   } catch (error: any) {

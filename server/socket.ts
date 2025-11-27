@@ -44,3 +44,10 @@ export function notifyUser(userId: string, event: string, data: any) {
   console.log(`📢 Notification sent to user ${userId}:`, event);
 }
 
+// Helper function to broadcast to all connected users
+export function broadcast(event: string, data: any) {
+  const socketIO = getIO();
+  socketIO.emit(event, data);
+  console.log(`📢 Broadcast sent to all users:`, event);
+}
+
