@@ -188,17 +188,58 @@ export default function JobsPage() {
   useEffect(() => {
     if (!user) return;
 
-    const socket = getSocket();
-    
-    // Join user room to receive notifications
-    socket.emit('join-user-room', user.id);
-    console.log('📡 Jobs page: Listening to socket events for user:', user.id);
+    let socket: ReturnType<typeof getSocket> | null = null;
+    let isMounted = true;
 
+    // Define event handlers outside setupSocket so cleanup can access them
     // Listen for new jobs created - add to list immediately
     const handleNewJobCreated = (data: any) => {
-      console.log('🆕 New job created:', data);
-      // Fetch to get the complete job data
-      fetchJobs();
+      console.log('🆕 New job created event received:', data);
+      console.log('🆕 Current jobs count before adding:', allJobs.length);
+      
+      // Add the new job to the list immediately
+      setAllJobs((prevJobs) => {
+        // Check if job already exists (avoid duplicates)
+        const exists = prevJobs.some(job => job.id === data.jobId);
+        if (exists) {
+          console.log(`⚠️ Job ${data.jobId} already exists in list, skipping add`);
+          return prevJobs;
+        }
+        
+        // Create a new job object from the event data
+        const newJob: Job = {
+          id: data.jobId,
+          title: data.title,
+          description: '', // Will be fetched later if needed
+          category: data.category,
+          status: JobStatus.PENDING,
+          amount: data.amount,
+          client: data.client,
+          provider: null,
+          reviews: [],
+        };
+        
+        const updated = [newJob, ...prevJobs];
+        console.log(`✅ Added job ${data.jobId} to list. Total: ${updated.length} jobs`);
+        console.log('🆕 Jobs after adding:', updated.map(j => ({ id: j.id, title: j.title })));
+        return updated;
+      });
+      
+      // Optionally fetch to get complete job data (description, etc.) in the background
+      setTimeout(() => fetchJobs(), 500);
+    };
+
+    // Listen for job deletion - remove from list immediately
+    const handleJobDeleted = (data: any) => {
+      console.log('🗑️ Job deleted event received:', data);
+      console.log('🗑️ Current jobs count before deletion:', allJobs.length);
+      
+      setAllJobs((prevJobs) => {
+        const filtered = prevJobs.filter((job) => job.id !== data.jobId);
+        console.log(`✅ Removed job ${data.jobId} from list. Remaining: ${filtered.length} jobs`);
+        console.log('🗑️ Jobs after deletion:', filtered.map(j => ({ id: j.id, title: j.title })));
+        return filtered;
+      });
     };
 
     // Listen for new proposals - fetch to get updated proposals list
@@ -275,38 +316,240 @@ export default function JobsPage() {
       setTimeout(() => fetchJobs(), 500);
     };
 
-    // Register socket listeners
-    socket.on('new-job-created', handleNewJobCreated);
-    socket.on('new-proposal', handleNewProposal);
-    socket.on('proposal-accepted', handleProposalAccepted);
-    socket.on('job-status-changed', handleJobStatusChanged);
-    socket.on('proposal-counteroffered', handleCounterofferReceived);
-    socket.on('counteroffer-rejected', handleCounterofferRejected);
-    socket.on('counteroffer-accepted', handleCounterofferAccepted);
-
-    // Log socket connection status
-    socket.on('connect', () => {
+    const handleConnect = () => {
       console.log('✅ Socket connected in jobs page');
-    });
+      if (isMounted && user && socket) {
+        socket.emit('join-user-room', user.id);
+      }
+    };
 
-    socket.on('disconnect', () => {
-      console.log('❌ Socket disconnected in jobs page');
-    });
+    const handleDisconnect = (reason: string) => {
+      console.log('❌ Socket disconnected in jobs page:', reason);
+    };
+
+    const setupSocket = async () => {
+      try {
+        socket = getSocket();
+        
+        console.log('🔌 Socket state:', {
+          connected: socket.connected,
+          disconnected: socket.disconnected,
+          id: socket.id,
+        });
+        
+        // Register listeners immediately, even if not connected yet
+        // They will work once the socket connects
+        console.log('📡 Registering socket listeners (socket may not be connected yet)...');
+        
+        // Join user room when socket connects (or now if already connected)
+        const joinUserRoom = () => {
+          if (isMounted && user && socket) {
+            socket.emit('join-user-room', user.id);
+            console.log('✅ Joined user room:', user.id);
+          }
+        };
+        
+        if (socket.connected) {
+          joinUserRoom();
+        } else {
+          // Wait for connection, but don't fail if it takes time
+          console.log('⏳ Socket not connected, will join room when connected...');
+          socket.once('connect', () => {
+            console.log('✅ Socket connected, joining user room');
+            joinUserRoom();
+          });
+        }
+
+        if (!isMounted) return;
+
+        // Register socket listeners immediately (they will work when socket connects)
+        console.log('📡 Registering socket listeners...');
+        
+        socket.on('new-job-created', (data) => {
+          console.log('\n🎉 ========== NEW JOB CREATED EVENT RECEIVED ==========');
+          console.log('🎉 Event data:', data);
+          console.log('🎉 Job ID:', data.jobId);
+          console.log('🎉 Job title:', data.title);
+          console.log('🎉 Timestamp:', new Date().toISOString());
+          if (socket) {
+            console.log('🎉 Socket ID:', socket.id);
+            console.log('🎉 Socket connected:', socket.connected);
+          }
+          console.log('🎉 ========== END EVENT ==========\n');
+          handleNewJobCreated(data);
+        });
+        
+        // Also listen via onAny to catch all events
+        console.log('📡 Registered new-job-created listener, socket connected:', socket.connected);
+        socket.on('job-deleted', (data) => {
+          console.log('📥 Received job-deleted event:', data);
+          handleJobDeleted(data);
+        });
+        socket.on('new-proposal', (data) => {
+          console.log('📥 Received new-proposal event:', data);
+          handleNewProposal(data);
+        });
+        socket.on('proposal-accepted', (data) => {
+          console.log('📥 Received proposal-accepted event:', data);
+          handleProposalAccepted(data);
+        });
+        socket.on('job-status-changed', (data) => {
+          console.log('📥 Received job-status-changed event:', data);
+          handleJobStatusChanged(data);
+        });
+        socket.on('proposal-counteroffered', (data) => {
+          console.log('📥 Received proposal-counteroffered event:', data);
+          handleCounterofferReceived(data);
+        });
+        socket.on('counteroffer-rejected', (data) => {
+          console.log('📥 Received counteroffer-rejected event:', data);
+          handleCounterofferRejected(data);
+        });
+        socket.on('counteroffer-accepted', (data) => {
+          console.log('📥 Received counteroffer-accepted event:', data);
+          handleCounterofferAccepted(data);
+        });
+        
+        // Handle connect/disconnect
+        socket.on('connect', () => {
+          console.log('✅ Socket connected in jobs page');
+          if (isMounted && user && socket) {
+            socket.emit('join-user-room', user.id);
+            console.log('✅ Joined user room after connect:', user.id);
+          }
+        });
+        
+        socket.on('disconnect', (reason) => {
+          console.log('❌ Socket disconnected in jobs page:', reason);
+        });
+        
+        // Listen for test event
+        socket.on('test-event', (data) => {
+          console.log('✅ Test event received from server:', data);
+        });
+        
+        // Listen for test broadcast
+        socket.on('test-broadcast', (data) => {
+          console.log('✅ Test broadcast received from server:', data);
+        });
+        
+        // Listen for test direct emit
+        socket.on('test-direct-io-emit', (data) => {
+          console.log('✅ Test direct io.emit received from server:', data);
+        });
+        
+        // Listen for test direct emit from API
+        socket.on('test-direct-emit', (data) => {
+          console.log('✅ Test direct emit from API received:', data);
+        });
+        
+        // Listen for test broadcast from API
+        socket.on('test-broadcast-from-api', (data) => {
+          console.log('✅ Test broadcast from API received:', data);
+        });
+        
+        // Log all events for debugging
+        socket.onAny((eventName, ...args) => {
+          console.log(`\n🔔 ========== [JobsPage] EVENT RECEIVED ==========`);
+          console.log(`🔔 [JobsPage] Event name: ${eventName}`);
+          console.log(`🔔 [JobsPage] Timestamp: ${new Date().toISOString()}`);
+          console.log(`🔔 [JobsPage] Event args:`, args);
+          console.log(`🔔 [JobsPage] Event data:`, args[0]);
+          if (socket) {
+            console.log(`🔔 [JobsPage] Socket ID: ${socket.id}`);
+            console.log(`🔔 [JobsPage] Socket connected: ${socket.connected}`);
+            console.log(`🔔 [JobsPage] Event details:`, {
+              eventName,
+              argsCount: args.length,
+              args: args,
+              socketId: socket.id,
+              connected: socket.connected,
+            });
+          }
+          console.log(`🔔 ========== [JobsPage] END EVENT ==========\n`);
+        });
+        
+        // Verify listeners are registered
+        console.log('📋 All registered listeners:', {
+          'new-job-created': socket.listeners('new-job-created').length,
+          'job-deleted': socket.listeners('job-deleted').length,
+          'job-status-changed': socket.listeners('job-status-changed').length,
+          'new-proposal': socket.listeners('new-proposal').length,
+          'proposal-accepted': socket.listeners('proposal-accepted').length,
+          'proposal-counteroffered': socket.listeners('proposal-counteroffered').length,
+          'counteroffer-rejected': socket.listeners('counteroffer-rejected').length,
+          'counteroffer-accepted': socket.listeners('counteroffer-accepted').length,
+          'test-event': socket.listeners('test-event').length,
+          'connect': socket.listeners('connect').length,
+          'disconnect': socket.listeners('disconnect').length,
+        });
+
+        // Test socket connection
+        if (socket) {
+          console.log('🧪 Socket setup complete:', {
+            connected: socket.connected,
+            id: socket.id,
+            disconnected: socket.disconnected,
+            transport: socket.io?.engine?.transport?.name,
+          });
+          
+          // Verify listeners are registered
+          console.log('📋 Registered listeners:', {
+            'new-job-created': socket.listeners('new-job-created').length,
+            'job-deleted': socket.listeners('job-deleted').length,
+            'job-status-changed': socket.listeners('job-status-changed').length,
+            'new-proposal': socket.listeners('new-proposal').length,
+          });
+        }
+        
+        // If already connected, join room now
+        if (socket.connected) {
+          joinUserRoom();
+        } else {
+          // Socket not connected - wait for automatic reconnection
+          console.log('⚠️ Socket not connected, waiting for automatic reconnection...');
+          console.log('⚠️ Socket state:', {
+            connected: socket.connected,
+            disconnected: socket.disconnected,
+            id: socket.id,
+            active: socket.active,
+          });
+          
+          // Don't force connect - let Socket.IO handle reconnection automatically
+          // Just wait for the connect event
+          socket.once('connect', () => {
+            console.log('✅ Socket reconnected, joining user room');
+            joinUserRoom();
+          });
+        }
+
+      } catch (error) {
+        console.error('❌ Error setting up socket:', error);
+      }
+    };
+
+    setupSocket();
 
     // Cleanup
     return () => {
-      console.log('🧹 Cleaning up socket listeners');
-      socket.off('new-job-created', handleNewJobCreated);
-      socket.off('new-proposal', handleNewProposal);
-      socket.off('proposal-accepted', handleProposalAccepted);
-      socket.off('job-status-changed', handleJobStatusChanged);
-      socket.off('proposal-counteroffered', handleCounterofferReceived);
-      socket.off('counteroffer-rejected', handleCounterofferRejected);
-      socket.off('counteroffer-accepted', handleCounterofferAccepted);
-      socket.off('connect');
-      socket.off('disconnect');
+      isMounted = false;
+      if (socket) {
+        console.log('🧹 Cleaning up socket listeners');
+        socket.off('new-job-created', handleNewJobCreated);
+        socket.off('job-deleted', handleJobDeleted);
+        socket.off('new-proposal', handleNewProposal);
+        socket.off('proposal-accepted', handleProposalAccepted);
+        socket.off('job-status-changed', handleJobStatusChanged);
+        socket.off('proposal-counteroffered', handleCounterofferReceived);
+        socket.off('counteroffer-rejected', handleCounterofferRejected);
+        socket.off('counteroffer-accepted', handleCounterofferAccepted);
+        socket.off('connect', handleConnect);
+        socket.off('disconnect', handleDisconnect);
+        socket.offAny();
+      }
     };
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // Only depend on user, not fetchJobs - fetchJobs is only used inside handlers
 
   const handleReview = (job: Job, role: ReviewRole) => {
     if (role === ReviewRole.CLIENT_TO_PROVIDER && job.provider) {
@@ -553,8 +796,14 @@ export default function JobsPage() {
                               method: 'DELETE',
                             });
                             if (res.ok) {
-                              fetchJobs();
-                              alert('Trabajo eliminado correctamente');
+                              // Don't call fetchJobs() - let the socket event handle it
+                              // The socket event should remove the job from the list automatically
+                              console.log('✅ Job deleted, waiting for socket event to update UI');
+                              // Only fetch if socket event doesn't arrive after 2 seconds
+                              setTimeout(() => {
+                                console.log('⏰ Socket event timeout, fetching jobs manually');
+                                fetchJobs();
+                              }, 2000);
                             } else {
                               const error = await res.json();
                               alert(error.error || 'Error al eliminar el trabajo');

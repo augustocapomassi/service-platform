@@ -116,9 +116,17 @@ forge build
 
 En una terminal, inicia Anvil (blockchain local):
 
+**Opción 1: Usando el script de npm (Recomendado - usa mnemonic fijo):**
 ```bash
-anvil --steps-tracing
+npm run anvil
 ```
+
+**Opción 2: Manualmente con mnemonic fijo:**
+```bash
+anvil --steps-tracing --mnemonic "test test test test test test test test test test test junk"
+```
+
+**⚠️ IMPORTANTE:** Siempre usa el mnemonic fijo `"test test test test test test test test test test test junk"` para que Anvil genere las mismas direcciones cada vez. Esto es necesario para que el seed funcione correctamente, ya que las direcciones de las cuentas de Anvil están hardcodeadas en el seed.
 
 **Nota importante sobre logs de transferencias:** Si no ves las transferencias entre billeteras en los logs de Anvil, es porque las transferencias se realizan dentro del contrato (transacciones internas). Usa el flag `--steps-tracing` para ver todas las transacciones internas, incluyendo las transferencias de ETH entre direcciones.
 
@@ -188,7 +196,12 @@ docker-compose logs postgres
 
 Asegúrate de que Anvil esté corriendo antes de desplegar:
 ```bash
-anvil --steps-tracing
+npm run anvil
+```
+
+O manualmente:
+```bash
+anvil --steps-tracing --mnemonic "test test test test test test test test test test test junk"
 ```
 
 ### No veo las transferencias entre billeteras en los logs de Anvil
@@ -197,13 +210,33 @@ Las transferencias de ETH se realizan dentro del contrato usando transacciones i
 
 **Solución:** Inicia Anvil con el flag `--steps-tracing`:
 ```bash
-anvil --steps-tracing
+npm run anvil
 ```
 
-O usando el script de npm:
+O manualmente:
+```bash
+anvil --steps-tracing --mnemonic "test test test test test test test test test test test junk"
+```
+
+### Las direcciones de Anvil cambian cada vez que lo reinicio
+
+**Problema:** Si Anvil genera direcciones diferentes cada vez, el seed no funcionará porque las direcciones están hardcodeadas.
+
+**Solución:** Siempre inicia Anvil con el mnemonic fijo para generar las mismas direcciones:
 ```bash
 npm run anvil
 ```
+
+O manualmente:
+```bash
+anvil --steps-tracing --mnemonic "test test test test test test test test test test test junk"
+```
+
+Esto garantiza que las direcciones sean siempre las mismas:
+- Account #0: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (para despliegue del contrato)
+- Account #1: `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` (Juan)
+- Account #2: `0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC` (Maria)
+- Account #3: `0x90F79bf6EB2c4f870365E785982E1f101E93b906` (Pedro)
 
 Esto mostrará todas las transacciones internas, incluyendo las transferencias de ETH entre direcciones cuando se completan trabajos, se resuelven disputas, o se cancelan trabajos.
 

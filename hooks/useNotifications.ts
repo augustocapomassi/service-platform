@@ -23,14 +23,38 @@ export function useNotifications(userId: string | null) {
   useEffect(() => {
     if (!userId) return;
 
+    let isMounted = true;
     const socketInstance = getSocket();
     setSocket(socketInstance);
 
-    // Join user-specific room
-    socketInstance.emit('join-user-room', userId);
+    const setupSocket = () => {
+      try {
+        console.log('📡 Setting up socket for notifications, userId:', userId);
+        console.log('📊 Socket connected:', socketInstance.connected);
+        
+        // Join user room function
+        const joinUserRoom = () => {
+          if (isMounted && userId && socketInstance) {
+            socketInstance.emit('join-user-room', userId);
+            console.log('✅ Joined user room for notifications:', userId);
+          }
+        };
+        
+        // Join immediately if connected, otherwise wait for connection
+        if (socketInstance.connected) {
+          joinUserRoom();
+        } else {
+          console.log('⏳ Socket not connected, will join room when connected...');
+          socketInstance.once('connect', () => {
+            console.log('✅ Socket connected, joining user room');
+            joinUserRoom();
+          });
+        }
 
-    // Listen for new proposal notifications
-    socketInstance.on('new-proposal', (data: any) => {
+        if (!isMounted) return;
+
+        // Listen for new proposal notifications
+        socketInstance.on('new-proposal', (data: any) => {
       const notification: Notification = {
         id: `notif-${Date.now()}`,
         type: 'new-proposal',
@@ -55,8 +79,8 @@ export function useNotifications(userId: string | null) {
       }
     });
 
-    // Listen for proposal accepted notifications
-    socketInstance.on('proposal-accepted', (data: any) => {
+        // Listen for proposal accepted notifications
+        socketInstance.on('proposal-accepted', (data: any) => {
       const notification: Notification = {
         id: `notif-${Date.now()}`,
         type: 'proposal-accepted',
@@ -80,8 +104,8 @@ export function useNotifications(userId: string | null) {
       }
     });
 
-    // Listen for counteroffer notifications
-    socketInstance.on('proposal-counteroffered', (data: any) => {
+        // Listen for counteroffer notifications
+        socketInstance.on('proposal-counteroffered', (data: any) => {
       const notification: Notification = {
         id: `notif-${Date.now()}`,
         type: 'proposal-counteroffered',
@@ -105,8 +129,8 @@ export function useNotifications(userId: string | null) {
       }
     });
 
-    // Listen for counteroffer acceptance/rejection notifications
-    socketInstance.on('counteroffer-accepted', (data: any) => {
+        // Listen for counteroffer acceptance/rejection notifications
+        socketInstance.on('counteroffer-accepted', (data: any) => {
       const notification: Notification = {
         id: `notif-${Date.now()}`,
         type: 'counteroffer-accepted',
@@ -129,7 +153,7 @@ export function useNotifications(userId: string | null) {
       }
     });
 
-    socketInstance.on('counteroffer-rejected', (data: any) => {
+        socketInstance.on('counteroffer-rejected', (data: any) => {
       const notification: Notification = {
         id: `notif-${Date.now()}`,
         type: 'counteroffer-rejected',
@@ -152,8 +176,8 @@ export function useNotifications(userId: string | null) {
       }
     });
 
-    // Listen for job status change notifications
-    socketInstance.on('job-status-changed', (data: any) => {
+        // Listen for job status change notifications
+        socketInstance.on('job-status-changed', (data: any) => {
       const statusMessages: Record<string, Record<string, string>> = {
         'IN_PROGRESS': {
           'PENDING': 'El trabajo ha comenzado',
@@ -197,13 +221,31 @@ export function useNotifications(userId: string | null) {
       }
     });
 
+        // Handle reconnection - rejoin user room
+        socketInstance.on('connect', () => {
+          console.log('✅ Socket reconnected in notifications hook');
+          if (isMounted && userId) {
+            socketInstance.emit('join-user-room', userId);
+          }
+        });
+        
+        console.log('✅ Socket listeners registered for notifications');
+      } catch (error) {
+        console.error('❌ Error setting up socket for notifications:', error);
+      }
+    };
+
+    setupSocket();
+
     return () => {
+      isMounted = false;
       socketInstance.off('new-proposal');
       socketInstance.off('proposal-accepted');
       socketInstance.off('proposal-counteroffered');
       socketInstance.off('counteroffer-accepted');
       socketInstance.off('counteroffer-rejected');
       socketInstance.off('job-status-changed');
+      socketInstance.off('connect');
     };
   }, [userId]);
 

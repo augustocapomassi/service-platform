@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "compile": "forge build",
     "test": "forge test",
-    "anvil": "anvil --steps-tracing"
+    "anvil": "anvil --steps-tracing --mnemonic \"test test test test test test test test test test test junk\""
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

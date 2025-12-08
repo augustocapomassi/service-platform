@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { JobStatus } from '@prisma/client';
 import jwt from 'jsonwebtoken';
-import { notifyUser } from '@/server/socket-wrapper';
+import { notifyUser, broadcast } from '@/server/socket-wrapper';
 import { confirmCompletionInContract } from '@/lib/web3/escrow';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -176,30 +176,31 @@ export async function POST(
       },
     });
 
-    // Notify both client and provider
+    // Broadcast job status changes to ALL connected users (not just participants)
     try {
       const jobTitle = updatedJob.title;
       if (bothApproved) {
-        // Both approved - job is now COMPLETED
-        notifyUser(job.client.id, 'job-status-changed', {
+        // Both approved - job is now COMPLETED - broadcast to everyone
+        broadcast('job-status-changed', {
           jobId: updatedJob.id,
           jobTitle: jobTitle,
           oldStatus: 'IN_PROGRESS',
           newStatus: 'COMPLETED',
           message: `El trabajo "${jobTitle}" ha sido completado por ambas partes`,
         });
-        if (job.provider?.id) {
-          notifyUser(job.provider.id, 'job-status-changed', {
-            jobId: updatedJob.id,
-            jobTitle: jobTitle,
-            oldStatus: 'IN_PROGRESS',
-            newStatus: 'COMPLETED',
-            message: `El trabajo "${jobTitle}" ha sido completado por ambas partes`,
-          });
-        }
+        console.log('📢 Broadcasted job completion to all users');
       } else {
-        // Only one approved - notify the other party
+        // Only one approved - broadcast status change to everyone
         const whoApproved = isClient ? 'cliente' : 'proveedor';
+        broadcast('job-status-changed', {
+          jobId: updatedJob.id,
+          jobTitle: jobTitle,
+          oldStatus: 'IN_PROGRESS',
+          newStatus: 'IN_PROGRESS', // Still in progress
+          message: `El ${whoApproved} ha aprobado el trabajo "${jobTitle}". Esperando la otra parte.`,
+        });
+        
+        // Also notify the other party specifically
         const otherUserId = isClient ? job.provider?.id : job.client.id;
         if (otherUserId) {
           notifyUser(otherUserId, 'job-approval-update', {
@@ -208,6 +209,7 @@ export async function POST(
             message: `El ${whoApproved} ha aprobado el trabajo "${jobTitle}". Esperando tu aprobación.`,
           });
         }
+        console.log('📢 Broadcasted job approval update to all users');
       }
     } catch (error) {
       console.error('Error sending notification:', error);

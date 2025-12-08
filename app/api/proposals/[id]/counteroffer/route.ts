@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { JobStatus } from '@prisma/client';
 import { ethers } from 'ethers';
-import { notifyUser } from '@/server/socket-wrapper';
-import { createJobInContract } from '@/lib/web3/escrow';
+import { notifyUser, broadcast } from '@/server/socket-wrapper';
+import { createJobInContract, acceptJobInContract } from '@/lib/web3/escrow';
 
 // Provider accepts or rejects counteroffer
 export async function POST(
@@ -145,6 +145,17 @@ export async function POST(
         contractJobId = contractResult.contractJobId;
         txHash = contractResult.txHash;
         console.log(`✅ Job created in contract: ID=${contractJobId}, TX=${txHash}`);
+        
+        // Provider accepts the job in the contract (changes status to IN_PROGRESS)
+        try {
+          console.log('📝 Provider accepting job in contract...');
+          const acceptResult = await acceptJobInContract(proposal.providerId, contractJobId);
+          console.log(`✅ Job accepted in contract: TX=${acceptResult.txHash}`);
+        } catch (error: any) {
+          console.error('❌ Error accepting job in contract:', error);
+          // Continue anyway - the job was created, we can try to accept later
+          console.warn('⚠️ Job created but not accepted in contract. Status will remain PENDING.');
+        }
       } catch (error: any) {
         console.error('❌ Error creating job in contract:', error);
         return NextResponse.json(
@@ -217,22 +228,16 @@ export async function POST(
         console.error('Error sending acceptance notification:', error);
       }
 
-      // Notify both client and provider that job status changed to IN_PROGRESS
+      // Broadcast job status change to ALL connected users (not just participants)
       try {
-        notifyUser(proposal.job.clientId, 'job-status-changed', {
+        broadcast('job-status-changed', {
           jobId: updatedJob.id,
           jobTitle: updatedJob.title,
           oldStatus: 'PENDING',
           newStatus: 'IN_PROGRESS',
           message: `El trabajo "${updatedJob.title}" ha comenzado`,
         });
-        notifyUser(proposal.providerId, 'job-status-changed', {
-          jobId: updatedJob.id,
-          jobTitle: updatedJob.title,
-          oldStatus: 'PENDING',
-          newStatus: 'IN_PROGRESS',
-          message: `El trabajo "${updatedJob.title}" ha comenzado`,
-        });
+        console.log('📢 Broadcasted job status change to all users');
       } catch (error) {
         console.error('Error sending job status change notification:', error);
       }

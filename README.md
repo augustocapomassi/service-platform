@@ -88,9 +88,17 @@ forge build
 
 Inicia Anvil:
 
+**Recomendado (usa mnemonic fijo para direcciones consistentes):**
 ```bash
-anvil --steps-tracing
+npm run anvil
 ```
+
+**O manualmente:**
+```bash
+anvil --steps-tracing --mnemonic "test test test test test test test test test test test junk"
+```
+
+**⚠️ IMPORTANTE:** Siempre usa el mnemonic fijo para que Anvil genere las mismas direcciones cada vez. Esto es necesario para que el seed funcione correctamente.
 
 **Nota:** Usa `--steps-tracing` para ver todas las transacciones internas, incluyendo las transferencias de ETH entre billeteras que se realizan dentro del contrato.
 

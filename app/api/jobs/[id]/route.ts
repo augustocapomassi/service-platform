@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { JobStatus } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { broadcast } from '@/server/socket-wrapper';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -72,6 +73,16 @@ export async function DELETE(
     await prisma.job.delete({
       where: { id: params.id },
     });
+
+    // Broadcast job deletion to all connected users
+    try {
+      broadcast('job-deleted', {
+        jobId: params.id,
+      });
+      console.log('📢 Broadcasted job deletion to all users:', params.id);
+    } catch (error) {
+      console.error('Error broadcasting job deletion:', error);
+    }
 
     return NextResponse.json({ message: 'Trabajo eliminado correctamente' });
   } catch (error: any) {
