@@ -603,9 +603,7 @@ export default function JobsPage() {
       {notifications.length > 0 && (
         <NotificationToast
           notifications={notifications}
-          onDismiss={(id) => {
-            // This will be handled by the hook's clearNotifications
-          }}
+          onDismiss={removeNotification}
         />
       )}
 

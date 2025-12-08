@@ -22,6 +22,25 @@ export default function NotificationToast({ notifications, onDismiss }: Notifica
     setVisibleNotifications(notifications.slice(0, 3)); // Show max 3 at a time
   }, [notifications]);
 
+  // Auto-dismiss notifications after 3 seconds
+  useEffect(() => {
+    if (visibleNotifications.length === 0) return;
+
+    const timeouts: NodeJS.Timeout[] = [];
+
+    visibleNotifications.forEach((notification) => {
+      const timeout = setTimeout(() => {
+        onDismiss(notification.id);
+      }, 3000); // 3 seconds
+      timeouts.push(timeout);
+    });
+
+    // Cleanup timeouts on unmount or when notifications change
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+    };
+  }, [visibleNotifications, onDismiss]);
+
   if (visibleNotifications.length === 0) return null;
 
   return (

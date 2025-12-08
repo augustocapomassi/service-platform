@@ -148,9 +148,10 @@ export async function POST(
       // Create job in escrow contract and deposit funds
       let contractJobId: string | null = null;
       let txHash: string | null = null;
+      let acceptTxHash: string | null = null;
       
       try {
-        console.log('💰 Creating job in escrow contract...');
+        console.log('💰 Step 1: Creating job in escrow contract and depositing funds...');
         const contractResult = await createJobInContract(
           proposal.job.clientId,
           proposal.provider.walletAddress,
@@ -160,24 +161,31 @@ export async function POST(
         );
         contractJobId = contractResult.contractJobId;
         txHash = contractResult.txHash;
-        console.log(`✅ Job created in contract: ID=${contractJobId}, TX=${txHash}`);
+        console.log(`✅ Step 1 complete: Job created in contract: ID=${contractJobId}, TX=${txHash}`);
+        console.log(`✅ Funds deposited to escrow contract`);
         
-        // Provider accepts the job in the contract (changes status to IN_PROGRESS)
-        try {
-          console.log('📝 Provider accepting job in contract...');
-          const acceptResult = await acceptJobInContract(proposal.providerId, contractJobId);
-          console.log(`✅ Job accepted in contract: TX=${acceptResult.txHash}`);
-        } catch (error: any) {
-          console.error('❌ Error accepting job in contract:', error);
-          // Continue anyway - the job was created, we can try to accept later
-          console.warn('⚠️ Job created but not accepted in contract. Status will remain PENDING.');
-        }
+        // CRITICAL: Provider MUST accept the job in the contract BEFORE we update DB to IN_PROGRESS
+        // This ensures funds are in escrow and job is in IN_PROGRESS in the contract
+        console.log('💰 Step 2: Provider accepting job in contract (changes status to IN_PROGRESS)...');
+        const acceptResult = await acceptJobInContract(proposal.providerId, contractJobId);
+        acceptTxHash = acceptResult.txHash;
+        console.log(`✅ Step 2 complete: Job accepted in contract: TX=${acceptTxHash}`);
+        console.log(`✅ Job status changed to IN_PROGRESS in contract`);
       } catch (error: any) {
-        console.error('❌ Error creating job in contract:', error);
+        console.error('❌ Error in contract operations:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          code: error.code,
+          data: error.data,
+        });
+        
+        // If contract operations fail, DO NOT update database
+        // The job must remain in PENDING status until funds are in escrow and job is accepted
         return NextResponse.json(
           { 
-            error: 'Error al crear el trabajo en el contrato de escrow',
-            details: error.message || 'Unknown error'
+            error: 'Error al procesar el trabajo en el contrato de escrow',
+            details: error.message || 'Unknown error',
+            message: 'El trabajo no puede pasar a estado "en progreso" hasta que los fondos estén en escrow y el proveedor acepte el trabajo en el contrato.'
           },
           { status: 500 }
         );
@@ -192,6 +200,7 @@ export async function POST(
       });
 
       // Update job: assign provider, set status to IN_PROGRESS, and save contract info
+      // Only update to IN_PROGRESS if BOTH contract operations succeeded
       const updatedJob = await prisma.job.update({
         where: { id: proposal.jobId },
         data: {
@@ -199,7 +208,8 @@ export async function POST(
           status: JobStatus.IN_PROGRESS,
           amount: finalAmount, // Update amount if there was a counteroffer
           contractJobId: contractJobId,
-          txHash: txHash,
+          txHash: txHash, // This is the createJob transaction hash
+          // Note: acceptTxHash is not stored in DB, but the job is now IN_PROGRESS in contract
         },
         include: {
           client: {
